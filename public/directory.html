@@ -6,6 +6,7 @@
     <title>listing directory {directory}</title>
     <style>{style}</style>
     <script>
+      // no it's not jQuery, it just looks similar ;-)
       function $(id){
         var el = 'string' == typeof id
           ? document.getElementById(id)
@@ -69,13 +70,51 @@
 
       $(window).on('content loaded', function(){
         $('search').on('keyup', search);
+
+        // handle CKEDITOR file api stuff
+        if (window.opener && window.opener.CKEDITOR) {
+
+          console.log('opener');
+          function queryString(search) {
+            var queryString = search || location.search;
+            queryString = queryString.trim().replace(/^(\?|#)/, '');
+            queryString = queryString.split('&');
+            var param = {};
+            var query = queryString.forEach(function(query){
+              var segment = query.split('=');
+              param[segment[0]] = segment.length > 1 ? segment[1] : true;
+            });
+            return param;
+          }
+
+          var query = queryString();
+          //var el = document.querySelectorAll('#files .preview img');
+          var el = document.querySelectorAll('#files li a');
+          var images = [].slice.call(el);
+          console.log('images', el, images);
+          images.forEach(function(image) {
+            image.addEventListener('click', function(e) {
+              e.preventDefault();
+              console.log(query.CKEditorFuncNum, image.getAttribute('href'));
+              var ref = window.opener;
+              ref.console.log(query.CKEditorFuncNum, image.getAttribute('href'));
+              ref.CKEDITOR.tools.callFunction(query.CKEditorFuncNum, image.getAttribute('href'));
+              window.close();
+              return false;
+            }, false);
+          });
+
+        }
+
       });
+
+
     </script>
   </head>
   <body class="directory">
     <input id="search" type="text" placeholder="Search" autocomplete="off" />
     <div id="wrapper">
-      <h1><a href="/">~</a>{linked-path}</h1>
+      <h1><a href="/"></a>{linked-path}</h1>
       {files}
     </div>
   </body>

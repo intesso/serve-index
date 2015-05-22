@@ -88,6 +88,8 @@ exports = module.exports = function serveIndex(root, options){
     , icons = options.icons
     , view = options.view || 'tiles'
     , filter = options.filter
+    , navigateUp = !!options.navigateUp
+    , navigateDown = !!options.navigateDown
     , template = options.template || defaultTemplate
     , stylesheet = options.stylesheet || defaultStylesheet;
 
@@ -120,7 +122,7 @@ exports = module.exports = function serveIndex(root, options){
     }
 
     // determine ".." display
-    var showUp = normalize(resolve(path) + sep) !== root;
+    navigateUp = normalize(resolve(path) + sep) !== root && navigateUp;
 
     // check if we have a directory
     debug('stat "%s"', path);
@@ -154,7 +156,7 @@ exports = module.exports = function serveIndex(root, options){
 
         // not acceptable
         if (!type) return next(createError(406));
-        exports[mediaType[type]](req, res, files, next, originalDir, showUp, icons, path, view, template, stylesheet);
+        exports[mediaType[type]](req, res, files, next, originalDir, navigateUp, navigateDown, icons, path, view, template, stylesheet);
       });
     });
   };
@@ -164,7 +166,7 @@ exports = module.exports = function serveIndex(root, options){
  * Respond with text/html.
  */
 
-exports.html = function(req, res, files, next, dir, showUp, icons, path, view, template, stylesheet){
+exports.html = function(req, res, files, next, dir, navigateUp, navigateDown, icons, path, view, template, stylesheet){
   fs.readFile(template, 'utf8', function(err, str){
     if (err) return next(err);
     fs.readFile(stylesheet, 'utf8', function(err, style){
@@ -172,8 +174,9 @@ exports.html = function(req, res, files, next, dir, showUp, icons, path, view, t
       stat(path, files, function(err, stats){
         if (err) return next(err);
         files = files.map(function(file, i){ return { name: file, stat: stats[i] }; });
+        files = files.filter(navigate(files, navigateUp, navigateDown));
         files.sort(fileSort);
-        if (showUp) files.unshift({ name: '..' });
+        // TODO remove: if (showUp) files.unshift({ name: '..' });
         str = str
           .replace(/\{style\}/g, style.concat(iconStyle(files, icons)))
           .replace(/\{files\}/g, html(files, dir, icons, view))
@@ -352,13 +355,14 @@ function iconStyle (files, useIcons) {
  */
 
 function html(files, dir, useIcons, view) {
-  return '<ul id="files" class="view-' + escapeHtml(view) + '">'
+  return '<div id="files" class="center view-' + escapeHtml(view) + '">'
     + (view == 'details' ? (
-      '<li class="header">'
-      + '<span class="name">Name</span>'
-      + '<span class="size">Size</span>'
-      + '<span class="date">Modified</span>'
-      + '</li>') : '')
+      '<div class="header row hidden">'
+      + '<span class="name col-1-3">Name</span>'
+      + '<span class="size col-1-4 hidden">Size</span>'
+      + '<span class="date col-1-4 hidden">Modified</span>'
+      + '<span class="preview col-2-3">Preview</span>'
+      + '</div>') : '')
     + files.map(function(file){
     var isDir = '..' == file.name || (file.stat && file.stat.isDirectory())
       , classes = []
@@ -384,23 +388,31 @@ function html(files, dir, useIcons, view) {
 
     path.push(encodeURIComponent(file.name));
 
+    var link = escapeHtml(normalizeSlashes(normalize(path.join('/'))));
+
     var date = file.stat && file.name !== '..'
       ? file.stat.mtime.toDateString() + ' ' + file.stat.mtime.toLocaleTimeString()
       : '';
     var size = file.stat && !isDir
       ? file.stat.size
       : '';
+    var preview = file.stat && !isDir && isImage(file.name)
+      ? link
+      : '#';
 
-    return '<li><a href="'
-      + escapeHtml(normalizeSlashes(normalize(path.join('/'))))
-      + '" class="' + escapeHtml(classes.join(' ')) + '"'
+    return '<div><a href="'
+      + link
+      + '" class="center ' + escapeHtml(classes.join(' ')) + '"'
       + ' title="' + escapeHtml(file.name) + '">'
-      + '<span class="name">' + escapeHtml(file.name) + '</span>'
-      + '<span class="size">' + escapeHtml(size) + '</span>'
-      + '<span class="date">' + escapeHtml(date) + '</span>'
+
+      + '<span class="name row hidden">' + escapeHtml(file.name) + '</span>'
+      + '<span class="size col-1-4 hidden">' + escapeHtml(size) + '</span>'
+      + '<span class="date col-1-4 hidden">' + escapeHtml(date) + '</span>'
+
+      + '<span class="preview row"><img class="w-800 center" src="' + escapeHtml(preview) + '"></span>'
       + '</a></li>';
 
-  }).join('\n') + '</ul>';
+  }).join('\n') + '</div>';
 }
 
 /**
@@ -416,6 +428,12 @@ function load(icon) {
   return cache[icon] = fs.readFileSync(__dirname + '/public/icons/' + icon, 'base64');
 }
 
+function isImage(name) {
+  return ['svg', 'png', 'jpg', 'jpeg', 'bmp'].some(function(type) {
+    return new RegExp('\.' + type + '$', 'i').test(name);
+  });
+}
+
 /**
  * Normalizes the path separator from system separator
  * to URL separator, aka `/`.
@@ -427,7 +445,7 @@ function load(icon) {
 
 function normalizeSlashes(path) {
   return path.split(sep).join('/');
-};
+}
 
 /**
  * Filter "hidden" `files`, aka files
@@ -442,6 +460,12 @@ function removeHidden(files) {
   return files.filter(function(file){
     return '.' != file[0];
   });
+}
+
+function navigate(file, up, down) {
+  return function(file) {
+    return !file.stat || !file.stat.isDirectory() || file.name == '..' && up || down;
+  };
 }
 
 /**
